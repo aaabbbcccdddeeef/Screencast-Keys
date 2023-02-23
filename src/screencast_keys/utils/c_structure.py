@@ -12,7 +12,7 @@ def gen_import():
 )
     '''
 
-    print(body)
+    print(f"{body}\n")
 
 
 def parse_struct(code_body, struct_name):
@@ -40,6 +40,26 @@ def parse_struct(code_body, struct_name):
     return variables
 
 
+def parse_enum(code_body, enum_name):
+    lines = code_body.split("\n")
+    items = []
+    value = 0
+    for l in lines:
+        m = re.search(r"^\s*([A-Z_]+)\s*(=*)\s*([0-9]*),", l)
+        if m:
+            item = {}
+            item["name"] = m.group(1)
+            if m.group(2) == "=":
+                item["value"] = int(m.group(3))
+                value = item["value"] + 1
+            else:
+                item["value"] = value
+                value += 1
+            items.append(item)
+
+    return items
+
+
 def type_to_ctype(type, is_pointer):
     known_struct = (
         "Link",
@@ -48,7 +68,13 @@ def type_to_ctype(type, is_pointer):
         "wmWindow",
         "wmOperator",
         "wmEventHandler",
+    )
+    known_enum = (
         "eWM_EventHandlerType",
+        "eWM_EventHandlerFlag",
+    )
+    known_func = (
+        "EventHandlerPoll",
     )
     builtin_types = (
         "void",
@@ -62,6 +88,10 @@ def type_to_ctype(type, is_pointer):
         if is_pointer:
             return True, f"POINTER({type})"
         return True, type
+    if type in known_enum:
+        return False, f"c_int8"
+    if type in known_func:
+        return False, f"c_void_p"
     if type in builtin_types:
         if is_pointer:
             return True, f"c_{type}_p"
@@ -70,6 +100,37 @@ def type_to_ctype(type, is_pointer):
     assert is_pointer
     return False, "c_void_p"
 
+
+def gen_enum(tag, source_file_path, enum_name, add_method_func):
+    url = f"{SOURCE_BASE_URL}/{tag}/{source_file_path}"
+    response = requests.get(url)
+    response.raise_for_status()
+    
+    code_body = response.text
+    lines = code_body.split("\n")
+    in_enum = False
+    enum_code_body = ""
+    for l in lines:
+        if not in_enum:
+            m = re.search(r"enum\s+" + enum_name + r"\s+{$", l)
+            if m:
+                in_enum = True
+        else:
+            enum_code_body += l + "\n"
+            m = re.search("^}", l)
+            if m:
+                break
+    else:
+        raise Exception(f"Enumerator {enum_name} is not found.")
+
+    items = parse_enum(enum_code_body, enum_name)
+
+    print("# pylint: disable=C0103")
+    print(f"class {enum_name}:")
+    print(f'    """Defined in ${source_file_path}"""\n')
+    for item in items:
+        print(f'    {item["name"]} = {item["value"]}')
+    print("\n")
 
 def gen_struct(tag, source_file_path, struct_name, add_method_func):
     url = f"{SOURCE_BASE_URL}/{tag}/{source_file_path}"
@@ -177,8 +238,7 @@ def add_method_for_ListBase():
         newlink.prev = gen_ptr(prevlink)
         prevlink.next = gen_ptr(newlink)
         if newlink.next:
-            newlink.next.prev = gen_ptr(newlink)
-    '''
+            newlink.next.prev = gen_ptr(newlink)'''
 
     return body
 
@@ -186,17 +246,21 @@ def add_method_for_ListBase():
 def main():
     tag = "v3.0.0"
     gen_info = [
-        ["source/blender/makesdna/DNA_listBase.h", "Link", None],
-        ["source/blender/makesdna/DNA_listBase.h", "ListBase", add_method_for_ListBase],
-        ["source/blender/makesdna/DNA_screen_types.h", "ScrAreaMap", None],
-        ["source/blender/makesdna/DNA_windowmanager_types.h", "wmWindow", None],
-        ["source/blender/makesdna/DNA_windowmanager_types.h", "wmOperator", None],
-        ["source/blender/windowmanager/wm_event_system.h", "wmEventHandler", None],
+        ["enum", "source/blender/windowmanager/wm_event_system.h", "eWM_EventHandlerType", None],
+        ["struct", "source/blender/makesdna/DNA_listBase.h", "Link", None],
+        ["struct", "source/blender/makesdna/DNA_listBase.h", "ListBase", add_method_for_ListBase],
+        ["struct", "source/blender/makesdna/DNA_screen_types.h", "ScrAreaMap", None],
+        ["struct", "source/blender/makesdna/DNA_windowmanager_types.h", "wmWindow", None],
+        ["struct", "source/blender/makesdna/DNA_windowmanager_types.h", "wmOperator", None],
+        ["struct", "source/blender/windowmanager/wm_event_system.h", "wmEventHandler", None],
     ]
 
     gen_import()
     for info in gen_info:
-        gen_struct(tag, info[0], info[1], info[2])
+        if info[0] == "struct":
+            gen_struct(tag, info[1], info[2], info[3])
+        elif info[0] == "enum":
+            gen_enum(tag, info[1], info[2], info[3])
 
 
 main()
