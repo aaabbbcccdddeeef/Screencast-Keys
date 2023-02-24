@@ -25,7 +25,7 @@ import sys
 
 SOURCE_BASE_URL = "https://raw.githubusercontent.com/blender/blender/"
 
-def gen_import(file):
+def write_import(file):
     body = '''from ctypes import (
     c_void_p, c_char, c_short, c_int, c_int8,
     addressof, cast, pointer,
@@ -37,7 +37,7 @@ def gen_import(file):
     print(f"{body}\n", file=file)
 
 
-def parse_struct(code_body, struct_name):
+def parse_struct_variables(code_body, struct_name):
     lines = code_body.split("\n")
     variables = []
     for l in lines:
@@ -62,7 +62,7 @@ def parse_struct(code_body, struct_name):
     return variables
 
 
-def parse_enum(code_body, enum_name):
+def parse_enum_items(code_body, enum_name):
     lines = code_body.split("\n")
     items = []
     value = 0
@@ -123,8 +123,8 @@ def type_to_ctype(type, is_pointer):
     return False, "c_void_p"
 
 
-def gen_struct(file, tag, source_file_path, struct_name, add_method_func, add_variable_func):
-    url = f"{SOURCE_BASE_URL}/{tag}/{source_file_path}"
+def parse_struct(target, source_file_path, struct_name):
+    url = f"{SOURCE_BASE_URL}/{target}/{source_file_path}"
     response = requests.get(url)
     response.raise_for_status()
     
@@ -145,8 +145,12 @@ def gen_struct(file, tag, source_file_path, struct_name, add_method_func, add_va
     else:
         raise Exception(f"Struct {struct_name} is not found.")
 
-    variables = parse_struct(struct_code_body, struct_name)
+    variables = parse_struct_variables(struct_code_body, struct_name)
 
+    return struct_name, variables
+
+
+def write_struct(file, source_file_path, struct_name, variables, add_method_func, add_variable_func):
     def print_variable(file, var):
         known_type, type_name = type_to_ctype(var["type"], var["is_pointer"])
         if var["array_element_num"]:
@@ -173,8 +177,17 @@ def gen_struct(file, tag, source_file_path, struct_name, add_method_func, add_va
     print("\n", file=file)
 
 
-def gen_enum(file, tag, source_file_path, enum_name):
-    url = f"{SOURCE_BASE_URL}/{tag}/{source_file_path}"
+def write_enum(file, source_file_path, enum_name, items):
+    print("# pylint: disable=C0103", file=file)
+    print(f"class {enum_name}:", file=file)
+    print(f'    """Defined in ${source_file_path}"""\n', file=file)
+    for item in items:
+        print(f'    {item["name"]} = {item["value"]}', file=file)
+    print("\n", file=file)
+
+
+def parse_enum(target, source_file_path, enum_name):
+    url = f"{SOURCE_BASE_URL}/{target}/{source_file_path}"
     response = requests.get(url)
     response.raise_for_status()
     
@@ -195,14 +208,9 @@ def gen_enum(file, tag, source_file_path, enum_name):
     else:
         raise Exception(f"Enumerator {enum_name} is not found.")
 
-    items = parse_enum(enum_code_body, enum_name)
+    items = parse_enum_items(enum_code_body, enum_name)
 
-    print("# pylint: disable=C0103", file=file)
-    print(f"class {enum_name}:", file=file)
-    print(f'    """Defined in ${source_file_path}"""\n', file=file)
-    for item in items:
-        print(f'    {item["name"]} = {item["value"]}', file=file)
-    print("\n", file=file)
+    return enum_name, items
 
 
 def add_method_for_ListBase():
@@ -311,12 +319,36 @@ def main():
         ["struct", "source/blender/windowmanager/wm_event_system.h", "wmEventHandler", None, add_variable_for_wmEventHandler],
     ]
 
-    gen_import(output_file)
+    # Parse struct/enum.
+    struct_info = []
+    enum_info = []
     for info in gen_info:
-        if info[0] == "struct":
-            gen_struct(output_file, target, info[1], info[2], info[3], info[4])
-        elif info[0] == "enum":
-            gen_enum(output_file, target, info[1], info[2])
+        if info[0] == "enum":
+            enum_name, items = parse_enum(target, info[1], info[2])
+            enum_info.append({
+                "file": output_file,
+                "source_file_path": info[1],
+                "enum_name": enum_name,
+                "items": items,
+            })
+        elif info[0] == "struct":
+            struct_name, variables = parse_struct(target, info[1], info[2])
+            struct_info.append({
+                "file": output_file,
+                "source_file_path": info[1],
+                "struct_name": struct_name,
+                "variables": variables,
+                "add_method_func": info[3],
+                "add_variable_func": info[4],
+            })
+
+    # Write file.
+    write_import(output_file)
+    for enum in enum_info:
+        write_enum(**enum)
+    for struct in struct_info:
+        write_struct(**struct)
+
 
 if __name__ == "__main__":
     main()
