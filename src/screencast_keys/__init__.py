@@ -40,6 +40,7 @@ if "bpy" in locals():
     import importlib
     # pylint: disable=E0601
     importlib.reload(utils)
+    importlib.reload(c_structure)
     utils.bl_class_registry.BlClassRegistry.cleanup()
     importlib.reload(preferences)
     importlib.reload(ops)
@@ -48,6 +49,7 @@ if "bpy" in locals():
 else:
     import bpy
     from . import utils
+    from . import c_structure
     from . import preferences
     from . import ops
     from . import ui
