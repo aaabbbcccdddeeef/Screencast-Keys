@@ -1,3 +1,23 @@
+##############################################################################
+# gen_c_structure.py
+#
+# Description:
+#   gen_c_structure.py generates struct/enum definitions from the Blender C
+#   source code to access the internal structure via ctypes module.
+#
+# Note:
+#   This script requires the network access to Blender's GitHub repository.
+#
+# Usage:
+#   python gen_c_structure.py -o <output-file> -t <target>
+#
+#     output-file:
+#       Output file path.
+#     target:
+#       Target branch/tag to generates the definition file.
+#       (ex. v3.0.0 -> Version 3.0.0, main -> Latest)
+##############################################################################
+
 import argparse
 import requests
 import re
